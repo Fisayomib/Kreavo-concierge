@@ -21,7 +21,7 @@ elif grade >= 70:
 else:
     print("You got a D")
 
-sum = 0
+summ = 0
 for i in range(1, 11):
-    sum += i
-print("Sum of numbers from 1 to 10:", sum)
+    summ += i
+print("Sum of numbers from 1 to 10:", summ)
