@@ -5,4 +5,3 @@ def summ(data):
         tottal += i
     return tottal
 
-print(summ(name_age))
