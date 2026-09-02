@@ -1,4 +1,11 @@
 VERSION = "0.1.0"
+from dotenv import load_dotenv 
+import os 
+
+load_dotenv()
+TWILIO_ACCOUNT_SID = os.environ["TWILIO_ACCOUNT_SID"]
+TWILIO_AUTH_TOKEN = os.environ["TWILIO_AUTH_TOKEN"]
+TWILIO_SANDBOX_NUMBER = os.environ["TWILIO_SANDBOX_NUMBER"]
 try:
     from flask import Flask 
 
