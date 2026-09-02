@@ -7,7 +7,7 @@ TWILIO_ACCOUNT_SID = os.environ["TWILIO_ACCOUNT_SID"]
 TWILIO_AUTH_TOKEN = os.environ["TWILIO_AUTH_TOKEN"]
 TWILIO_SANDBOX_NUMBER = os.environ["TWILIO_SANDBOX_NUMBER"]
 try:
-    from flask import Flask 
+    from flask import Flask, request 
 
 
     app = Flask(__name__)
@@ -15,6 +15,16 @@ try:
     def status():
         check = {"status": "healthy", "version": VERSION}
         return check
+
+    @app.route("/webhook", methods = ["POST"])
+    def hook():
+        
+        message = request.form.get("Body", "")
+        sender = request.form.get("From", "")
+
+        print(message)
+        print(sender)
+        return "OK" 
     if __name__ == "__main__":
         app.run()
 except ModuleNotFoundError:
