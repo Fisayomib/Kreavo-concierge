@@ -13,6 +13,7 @@ class FakeClient:
         self.messages = FakeMessages(FakeClient.calls)
 
 def test_webhook_sends_acknowledgement(monkeypatch):
+    FakeClient.calls = []
     monkeypatch.setattr("app.app.Client", FakeClient)
     client = app.test_client()
     response = client.post("/webhook", 
