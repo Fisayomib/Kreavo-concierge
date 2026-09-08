@@ -46,12 +46,14 @@ If a required setting is missing, the service refuses to start and names the set
 
 Copy `.env.example` to `.env` and fill in the values.
 
-- `TWILIO_ACCOUNT_SID` — 
-- `TWILIO_AUTH_TOKEN` — 
-- `TWILIO_SANDBOX_NUMBER` —
+- `TWILIO_ACCOUNT_SID` — from Twilio account
+- `TWILIO_AUTH_TOKEN` — from twilio account
+- `TWILIO_SANDBOX_NUMBER` — from twilio account
 
 ## Running the Tests
 
 With the virtual environment activated:
+
+    python -m pytest
 
 This runs the full suite offline — no Twilio account, phone number, or network access required.
