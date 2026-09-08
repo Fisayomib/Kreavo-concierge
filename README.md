@@ -28,10 +28,32 @@ and a hard monthly token budget.
 In development.
 
 ## Installing Requirements
-- Create a new environment(venv): python -m venv venv
-- Activate the new environment for the project: .\venv\Scripts\Activate.ps1
-- Install the requirements: pip install -r requirements.txt
-- You can begin: Run python app/app.py and it will be available at http://127.0.0.1:5000
+
+1. Create a virtual environment: `python -m venv venv`
+2. Activate it:
+   - Windows (PowerShell): `.\venv\Scripts\Activate.ps1`
+   - macOS/Linux: `source venv/bin/activate`
+3. Install dependencies: `pip install -r requirements.txt`
+4. Copy `.env.example` to `.env` and fill in your Twilio credentials (see Configuration below)
+5. Start the service: `python app/app.py` — it will be available at http://127.0.0.1:5000
+
+If a required setting is missing, the service refuses to start and names the setting.
 
 ## Health Check 
 - The route to the health check is http://127.0.0.1:5000/health. Shows the health status plus its version number. 
+
+## Configuration
+
+Copy `.env.example` to `.env` and fill in the values.
+
+- `TWILIO_ACCOUNT_SID` — from Twilio account
+- `TWILIO_AUTH_TOKEN` — from twilio account
+- `TWILIO_SANDBOX_NUMBER` — from twilio account
+
+## Running the Tests
+
+With the virtual environment activated:
+
+    python -m pytest
+
+This runs the full suite offline — no Twilio account, phone number, or network access required.
