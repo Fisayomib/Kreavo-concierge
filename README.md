@@ -26,3 +26,12 @@ and a hard monthly token budget.
 ## Status
 
 In development.
+
+## Installing Requirements
+- Create a new environment(venv): python -m venv venv
+- Activate the new environment for the project: .\venv\Scripts\Activate.ps1
+- Install the requirements: pip install -r requirements.txt
+- You can begin: Run python app/app.py and it will be available at http://127.0.0.1:5000
+
+## Health Check 
+- The route to the health check is http://127.0.0.1:5000/health. Shows the health status plus its version number. 
