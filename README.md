@@ -49,3 +49,9 @@ Copy `.env.example` to `.env` and fill in the values.
 - `TWILIO_ACCOUNT_SID` — 
 - `TWILIO_AUTH_TOKEN` — 
 - `TWILIO_SANDBOX_NUMBER` —
+
+## Running the Tests
+
+With the virtual environment activated:
+
+This runs the full suite offline — no Twilio account, phone number, or network access required.

@@ -41,3 +41,9 @@ def test_webhook_replies_to_each_message(monkeypatch):
         client.post("/webhook",
                     data={"Body": "hello", "From": "whatsapp:+2340000000000"})
     assert len(FakeClient.calls) == 2
+
+def test_health_returns_healthy():
+    client = app.test_client()
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.get_json()["status"] == "healthy"
