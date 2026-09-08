@@ -9,9 +9,9 @@ import uuid
 
 
 load_dotenv()
-TWILIO_ACCOUNT_SID = os.environ["TWILIO_ACCOUNT_SID"]
-TWILIO_AUTH_TOKEN = os.environ["TWILIO_AUTH_TOKEN"]
-TWILIO_SANDBOX_NUMBER = os.environ["TWILIO_SANDBOX_NUMBER"]
+TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID")
+TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
+TWILIO_SANDBOX_NUMBER = os.environ.get("TWILIO_SANDBOX_NUMBER")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -48,14 +48,15 @@ def check_settings():
     required = ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_SANDBOX_NUMBER"]
     missing = []
     for name in required:
-        if name not in os.environ:
+        if not os.environ.get(name, "").strip():
             missing.append(name)
     if missing:
         raise RuntimeError(f"Missing required settings: {', '.join(missing)}. Set them in your local environment and start again.")
 if __name__ == "__main__":
     check_settings()
     logger.info("event=service_starting service=kreavo-concierge env=local version=%s", VERSION)
-    app.run()
+    port = int(os.environ.get("PORT", 5000))
+    app.run(port = port)
 
 
 

@@ -46,9 +46,11 @@ If a required setting is missing, the service refuses to start and names the set
 
 Copy `.env.example` to `.env` and fill in the values.
 
-- `TWILIO_ACCOUNT_SID` — from Twilio account
-- `TWILIO_AUTH_TOKEN` — from twilio account
-- `TWILIO_SANDBOX_NUMBER` — from twilio account
+- `TWILIO_ACCOUNT_SID` — identifies which account
+- `TWILIO_AUTH_TOKEN` — proves you're allowed to use the account
+- `TWILIO_SANDBOX_NUMBER` — it's the value that goes into from_ with the whatsapp: prefix
+
+- `PORT` — optional; the port the service listens on. Defaults to 5000 if not set.
 
 ## Running the Tests
 
