@@ -1,4 +1,6 @@
 from app.app import app
+import pytest
+from app.app import app, check_settings
 class FakeMessages:
     def __init__(self, calls):
         self.calls = calls
@@ -47,3 +49,20 @@ def test_health_returns_healthy():
     response = client.get("/health")
     assert response.status_code == 200
     assert response.get_json()["status"] == "healthy"
+
+def test_missing_required_setting_raises(monkeypatch):
+    monkeypatch.delenv("TWILIO_AUTH_TOKEN", raising=False)
+    with pytest.raises(RuntimeError, match="TWILIO_AUTH_TOKEN"):
+        check_settings()
+
+
+def test_empty_required_setting_raises(monkeypatch):
+    monkeypatch.setenv("TWILIO_AUTH_TOKEN", "   ")
+    with pytest.raises(RuntimeError, match="TWILIO_AUTH_TOKEN"):
+        check_settings()
+
+
+def test_non_numeric_port_raises(monkeypatch):
+    monkeypatch.setenv("PORT", "abc")
+    with pytest.raises(RuntimeError, match="PORT"):
+        check_settings()

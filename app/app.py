@@ -52,8 +52,11 @@ def check_settings():
             missing.append(name)
     if missing:
         raise RuntimeError(f"Missing required settings: {', '.join(missing)}. Set them in your local environment and start again.")
+    port = os.environ.get("PORT", "").strip()
+    if port and not port.isdigit():
+        raise RuntimeError(f"Setting PORT must be a number, got '{port}'. Fix it in your local environment and start again.")
+check_settings()
 if __name__ == "__main__":
-    check_settings()
     logger.info("event=service_starting service=kreavo-concierge env=local version=%s", VERSION)
     port = int(os.environ.get("PORT", 5000))
     app.run(port = port)
