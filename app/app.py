@@ -34,8 +34,18 @@ def hook():
     print(message)
     print(sender)
     return "OK" 
+def check_settings():
+    required = ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_SANDBOX_NUMBER"]
+    missing = []
+    for name in required:
+        if name not in os.environ:
+            missing.append(name)
+    if missing:
+        raise RuntimeError(f"Missing required settings: {', '.join(missing)}. Set them in your local environment and start again.")
 if __name__ == "__main__":
+    check_settings()
     app.run()
+
 
 
 
