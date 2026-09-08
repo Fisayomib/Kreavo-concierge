@@ -1,6 +1,7 @@
 from app.app import app
 from twilio.base.exceptions import TwilioRestException
 import pytest
+import logging 
 from app.app import app, check_settings
 class FakeMessages:
     def __init__(self, calls):
@@ -78,9 +79,11 @@ class RaisingClient:
         self.messages = RaisingMessages()
 
 
-def test_webhook_returns_500_when_send_fails(monkeypatch):
+def test_webhook_returns_500_when_send_fails(monkeypatch, caplog):
     monkeypatch.setattr("app.app.Client", RaisingClient)
     client = app.test_client()
-    response = client.post("/webhook",
-                           data={"Body": "hello", "From": "whatsapp:+2340000000000"})
+    with caplog.at_level(logging.ERROR):
+        response = client.post("/webhook",
+                               data={"Body": "hello", "From": "whatsapp:+2340000000000"})
     assert response.status_code == 500
+    assert "event=reply_failed" in caplog.text

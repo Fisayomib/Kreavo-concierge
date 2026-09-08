@@ -9,9 +9,9 @@ import uuid
 
 
 load_dotenv()
-TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID")
-TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
-TWILIO_SANDBOX_NUMBER = os.environ.get("TWILIO_SANDBOX_NUMBER")
+TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID", "").strip()
+TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "").strip()
+TWILIO_SANDBOX_NUMBER = os.environ.get("TWILIO_SANDBOX_NUMBER", "").strip()
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,9 +40,6 @@ def hook():
                     to=sender
                 )
         logger.info("event=reply_sent request_id=%s sender=%s", request_id, sender)
-    except TwilioRestException  as e:
-        logger.error("event=reply_failed request_id=%s sender=%s error=%s", request_id, sender, e)
-        return "Send failed", 500
     except Exception as e:
         logger.error("event=reply_failed request_id=%s sender=%s error=%s", request_id, sender, e)
         return "Send failed", 500    
