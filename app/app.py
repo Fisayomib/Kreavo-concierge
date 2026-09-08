@@ -10,7 +10,8 @@ TWILIO_SANDBOX_NUMBER = os.environ["TWILIO_SANDBOX_NUMBER"]
 
 try:
     from flask import Flask, request 
-    from twilio.rest import Client 
+    from twilio.rest import Client
+    from twilio.base.exceptions import TwilioRestException 
 
     client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
 
@@ -24,11 +25,15 @@ try:
     def hook():
         message = request.form.get("Body", "")
         sender = request.form.get("From", "")
-        message_sent = client.messages.create(
-            body="Thanks for your message — we've received it and will get back to you shortly.",
-            from_=f"whatsapp:{TWILIO_SANDBOX_NUMBER}",
-            to=sender
-        )        
+        try:
+            message_sent = client.messages.create(
+                        body="Thanks for your message — we've received it and will get back to you shortly.",
+                        from_= f"whatsapp:{TWILIO_SANDBOX_NUMBER}",
+                        to=sender
+                    )
+        except TwilioRestException  as e:
+            print("Twilio send failed:", e)
+            return "OK"        
         print(message)
         print(sender)
         return "OK" 
@@ -36,6 +41,8 @@ try:
         app.run()
 except ModuleNotFoundError:
     print("run pip install -r requirements.txt")
+
+
 
 
 
