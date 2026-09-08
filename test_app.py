@@ -1,4 +1,5 @@
 from app.app import app
+from twilio.base.exceptions import TwilioRestException
 import pytest
 from app.app import app, check_settings
 class FakeMessages:
@@ -21,7 +22,7 @@ def test_webhook_sends_acknowledgement(monkeypatch):
     response = client.post("/webhook", 
                            data={"Body": "hello", 
                                 "From": "whatsapp:+2340000000000"})
-    assert response.status_code == 200
+    assert response.status_code == 204
     assert len(FakeClient.calls) == 1
     assert FakeClient.calls[0]["body"] == "Thanks for your message — we've received it and will get back to you shortly."
 
@@ -31,7 +32,7 @@ def test_webhook_handles_missing_body(monkeypatch):
     client = app.test_client()
     response = client.post("/webhook",
                            data={"From": "whatsapp:+2340000000000"})
-    assert response.status_code == 200
+    assert response.status_code == 204
     assert len(FakeClient.calls) == 1
 
 
@@ -66,3 +67,20 @@ def test_non_numeric_port_raises(monkeypatch):
     monkeypatch.setenv("PORT", "abc")
     with pytest.raises(RuntimeError, match="PORT"):
         check_settings()
+
+class RaisingMessages:
+    def create(self, **kwargs):
+        raise TwilioRestException(status=400, uri="", msg="test failure")
+
+
+class RaisingClient:
+    def __init__(self, sid, token):
+        self.messages = RaisingMessages()
+
+
+def test_webhook_returns_500_when_send_fails(monkeypatch):
+    monkeypatch.setattr("app.app.Client", RaisingClient)
+    client = app.test_client()
+    response = client.post("/webhook",
+                           data={"Body": "hello", "From": "whatsapp:+2340000000000"})
+    assert response.status_code == 500

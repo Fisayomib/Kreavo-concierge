@@ -48,7 +48,7 @@ Copy `.env.example` to `.env` and fill in the values.
 
 - `TWILIO_ACCOUNT_SID` — identifies which account
 - `TWILIO_AUTH_TOKEN` — proves you're allowed to use the account
-- `TWILIO_SANDBOX_NUMBER` — it's the value that goes into from_ with the whatsapp: prefix
+- `TWILIO_SANDBOX_NUMBER` — the Twilio number replies are sent from, in E.164 format with the leading `+` (e.g. `+14155238886`). The code adds the `whatsapp:` prefix.
 
 - `PORT` — optional; the port the service listens on. Defaults to 5000 if not set.
 

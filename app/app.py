@@ -42,8 +42,11 @@ def hook():
         logger.info("event=reply_sent request_id=%s sender=%s", request_id, sender)
     except TwilioRestException  as e:
         logger.error("event=reply_failed request_id=%s sender=%s error=%s", request_id, sender, e)
-        return "Send failed", 500        
-    return "OK" 
+        return "Send failed", 500
+    except Exception as e:
+        logger.error("event=reply_failed request_id=%s sender=%s error=%s", request_id, sender, e)
+        return "Send failed", 500    
+    return "", 204 
 def check_settings():
     required = ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_SANDBOX_NUMBER"]
     missing = []
@@ -58,7 +61,7 @@ def check_settings():
 check_settings()
 if __name__ == "__main__":
     logger.info("event=service_starting service=kreavo-concierge env=local version=%s", VERSION)
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", "").strip() or 5000)
     app.run(port = port)
 
 
