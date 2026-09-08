@@ -42,7 +42,7 @@ def hook():
         logger.info("event=reply_sent request_id=%s sender=%s", request_id, sender)
     except TwilioRestException  as e:
         logger.error("event=reply_failed request_id=%s sender=%s error=%s", request_id, sender, e)
-        return "OK"        
+        return "Send failed", 500        
     return "OK" 
 def check_settings():
     required = ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_SANDBOX_NUMBER"]
