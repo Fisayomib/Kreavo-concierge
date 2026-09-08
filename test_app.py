@@ -21,3 +21,22 @@ def test_webhook_sends_acknowledgement(monkeypatch):
     assert response.status_code == 200
     assert len(FakeClient.calls) == 1
     assert FakeClient.calls[0]["body"] == "Thanks for your message — we've received it and will get back to you shortly."
+
+def test_webhook_handles_missing_body(monkeypatch):
+    FakeClient.calls = []
+    monkeypatch.setattr("app.app.Client", FakeClient)
+    client = app.test_client()
+    response = client.post("/webhook",
+                           data={"From": "whatsapp:+2340000000000"})
+    assert response.status_code == 200
+    assert len(FakeClient.calls) == 1
+
+
+def test_webhook_replies_to_each_message(monkeypatch):
+    FakeClient.calls = []
+    monkeypatch.setattr("app.app.Client", FakeClient)
+    client = app.test_client()
+    for _ in range(2):
+        client.post("/webhook",
+                    data={"Body": "hello", "From": "whatsapp:+2340000000000"})
+    assert len(FakeClient.calls) == 2
