@@ -9,9 +9,9 @@ import uuid
 
 
 load_dotenv()
-TWILIO_ACCOUNT_SID = os.environ["TWILIO_ACCOUNT_SID"]
-TWILIO_AUTH_TOKEN = os.environ["TWILIO_AUTH_TOKEN"]
-TWILIO_SANDBOX_NUMBER = os.environ["TWILIO_SANDBOX_NUMBER"]
+TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID", "").strip()
+TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "").strip()
+TWILIO_SANDBOX_NUMBER = os.environ.get("TWILIO_SANDBOX_NUMBER", "").strip()
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,22 +40,26 @@ def hook():
                     to=sender
                 )
         logger.info("event=reply_sent request_id=%s sender=%s", request_id, sender)
-    except TwilioRestException  as e:
+    except Exception as e:
         logger.error("event=reply_failed request_id=%s sender=%s error=%s", request_id, sender, e)
-        return "OK"        
-    return "OK" 
+        return "Send failed", 500    
+    return "", 204 
 def check_settings():
     required = ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_SANDBOX_NUMBER"]
     missing = []
     for name in required:
-        if name not in os.environ:
+        if not os.environ.get(name, "").strip():
             missing.append(name)
     if missing:
         raise RuntimeError(f"Missing required settings: {', '.join(missing)}. Set them in your local environment and start again.")
+    port = os.environ.get("PORT", "").strip()
+    if port and not port.isdigit():
+        raise RuntimeError(f"Setting PORT must be a number, got '{port}'. Fix it in your local environment and start again.")
+check_settings()
 if __name__ == "__main__":
-    check_settings()
     logger.info("event=service_starting service=kreavo-concierge env=local version=%s", VERSION)
-    app.run()
+    port = int(os.environ.get("PORT", "").strip() or 5000)
+    app.run(port = port)
 
 
 
