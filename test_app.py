@@ -87,3 +87,34 @@ def test_webhook_returns_500_when_send_fails(monkeypatch, caplog):
                                data={"Body": "hello", "From": "whatsapp:+2340000000000"})
     assert response.status_code == 500
     assert "event=reply_failed" in caplog.text
+
+import re
+
+
+def test_arrival_and_reply_share_request_id(monkeypatch, caplog):
+    FakeClient.calls = []
+    monkeypatch.setattr("app.app.Client", FakeClient)
+    client = app.test_client()
+    with caplog.at_level(logging.INFO):
+        client.post("/webhook",
+                    data={"Body": "hello", "From": "whatsapp:+2340000000000"})
+
+    ids = re.findall(r"request_id=(\w+)", caplog.text)
+    assert len(ids) == 2
+    assert ids[0] == ids[1]
+
+
+def test_two_messages_keep_separate_request_ids(monkeypatch, caplog):
+    FakeClient.calls = []
+    monkeypatch.setattr("app.app.Client", FakeClient)
+    client = app.test_client()
+    with caplog.at_level(logging.INFO):
+        for _ in range(2):
+            client.post("/webhook",
+                        data={"Body": "hello", "From": "whatsapp:+2340000000000"})
+
+    ids = re.findall(r"request_id=(\w+)", caplog.text)
+    assert len(ids) == 4
+    assert ids[0] == ids[1]
+    assert ids[2] == ids[3]
+    assert ids[0] != ids[2]
