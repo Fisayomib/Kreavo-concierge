@@ -1,10 +1,10 @@
 # Duplicate Deliveries
 - I will be picking the Twilio MessageSid. Twilio assigns each message a unique ID and treats it as separate message to handle. So if a user sends "yes" to the same message twice, it would treat it as a separate message too and it gets its own reply. 
-- For a retry, Twilio re-sends the same message with the same receipt number. The code checks the list, sees the receipt number, and skips, no Claude call, but it is logged. The receipt still shows up in the logs to show that it happened.
+- For a retry, Twilio only retries if a retry policy is configured; by default there are none. If retries are configured: Twilio re-sends the same message with the same receipt number. The code checks the list, sees the receipt number, and skips, no Claude call, but it is logged. The receipt still shows up in the logs to show that it happened. We handle duplicates anyway, because the check costs nothing when no duplicate arrives, and missing one costs the customer a doubled reply.
 - Two options I rejected: 
     a. A hash of sender plus message body. For two identical messages, the code checks if a message like that is on the list, and because it's already on the list, it skips, and no reply goes through at all. This is not good because the second reply can be for a completely different text or context, and it gets no reply to the customer at all..
 
-    b. Sender plus body plus a 60-second window. This is the same as the first, but with a time window, a 60-seconds time-window, if the second identical message comes after the 60 seconds window then it gets a reply. But what if the second identical message comes withtin 20 seconds, it doesn't get a reply and if it's for an etirely different context, that is bad 
+    b. Sender plus body plus a 60-second window. This is the same as the first, but with a time window, a 60-seconds time-window, if the second identical message comes after the 60 seconds window then it gets a reply. But what if the second identical message comes within 20 seconds, it doesn't get a reply and if it's for an entirely different context, that is bad 
 
 ## Slow Answers
 1. Chosen behavior: Respond to Twilio immediately with the empty 204, before any Claude work. However long Claude takes, the answer still goes out, because responding to Twilio is no longer tied to producing it.
