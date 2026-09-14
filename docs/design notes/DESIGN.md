@@ -1,0 +1,7 @@
+# Duplicate Deliveries
+- I will be picking the Twilio MessageSid. Twilio assigns each message a unique ID and treats it as separate message to handle. So if a user sends "yes" to the same message twice, it would treat it as a separate message too and it gets its own reply. 
+- For a retry, Twilio re-sends the same message with the same receipt number. The code checks the list, sees the receipt number, and skips, no Claude call, but it is logged. The receipt still shows up in the logs to show that it happened.
+- Two options I rejected: 
+    a. A hash of sender plus message body. For two identical messages, the code checks if a message like that is on the list, and because it's already on the list, it skips, and no reply goes through at all. This is not good because the second reply can be for a completely different text or context, and it gets no reply to the customer at all..
+
+    b. Sender plus body plus a 60-second window. This is the same as the first, but with a time window, a 60-seconds time-window, if the second identical message comes after the 60 seconds window then it gets a reply. But what if the second identical message comes withtin 20 seconds, it doesn't get a reply and if it's for an etirely different context, that is bad 
