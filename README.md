@@ -67,6 +67,14 @@ The first applies `db/schema.sql` to `DATABASE_URL`, the second to `TEST_DATABAS
 
 The number is the Twilio WhatsApp number this tenant receives messages on. Give it with or without the `whatsapp:` prefix; the command normalises it and stores `whatsapp:+14155238886`, which is exactly how Twilio sends it in the webhook's `To` field. A number that is badly formatted, or already belongs to a tenant, is refused with a one-line error.
 
+#### Checking for unrecognised messages
+
+A message sent to a Twilio number that has no tenant row (for example, a number connected before `add_tenant` was run) is not replied to and is not stored as a turn. It is saved in the `unrecognised_messages` table and logged at ERROR level as `event=unrecognised_number`. To see what has arrived:
+
+    SELECT received_at, to_number, from_number, body FROM unrecognised_messages ORDER BY received_at DESC;
+
+If rows appear here, add the missing tenant with `add_tenant` and follow up with the customer by hand.
+
 ### 6. Start the app
 
     python -m app.app

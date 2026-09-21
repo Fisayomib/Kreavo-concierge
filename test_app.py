@@ -64,6 +64,13 @@ def reply_status_of(message_sid):
     return None if row is None else row[0]
 
 
+def stored_unrecognised():
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT message_sid, to_number, from_number, body, num_media FROM unrecognised_messages ORDER BY id"
+        ).fetchall()
+
+
 # ---------- acceptance criteria ----------
 
 def test_new_message_stores_one_turn_for_the_tenant(sent):
@@ -107,7 +114,7 @@ def test_same_text_twice_is_two_messages_not_a_duplicate(sent):
 
 def test_unrecognised_number_is_logged_and_creates_no_turn(sent, caplog):
     # Criterion 4
-    with caplog.at_level(logging.WARNING):
+    with caplog.at_level(logging.ERROR):
         response = post_message("SM001", to="whatsapp:+19999999999")
     assert response.status_code == 204
     assert stored_turns() == []
@@ -120,6 +127,56 @@ def test_media_without_caption_is_stored(sent):
     response = post_message("MM001", body=None, num_media=1)
     assert response.status_code == 204
     assert stored_turns() == [(1, "MM001", "", 1)]
+
+
+# ---------- unrecognised numbers ----------
+
+UNKNOWN_NUMBER = "whatsapp:+19999999999"
+
+
+def test_unrecognised_number_saves_the_message_and_logs_an_error(sent, caplog):
+    with caplog.at_level(logging.ERROR):
+        response = post_message("SM001", body="hello", to=UNKNOWN_NUMBER)
+    assert response.status_code == 204
+    assert stored_unrecognised() == [("SM001", UNKNOWN_NUMBER, CUSTOMER_NUMBER, "hello", 0)]
+    assert stored_turns() == []
+    assert sent == []
+    error_lines = [r for r in caplog.records if r.levelno == logging.ERROR and "event=unrecognised_number" in r.getMessage()]
+    assert len(error_lines) == 1
+    assert "message_sid=SM001" in error_lines[0].getMessage()
+    assert f"to={UNKNOWN_NUMBER}" in error_lines[0].getMessage()
+    assert f"from={CUSTOMER_NUMBER}" in error_lines[0].getMessage()
+    assert "stored=true" in error_lines[0].getMessage()
+
+
+def test_unrecognised_number_delivered_twice_saves_one_row(sent, caplog):
+    with caplog.at_level(logging.ERROR):
+        first = post_message("SM001", to=UNKNOWN_NUMBER)
+        second = post_message("SM001", to=UNKNOWN_NUMBER)
+    assert first.status_code == 204
+    assert second.status_code == 204
+    assert len(stored_unrecognised()) == 1
+    assert stored_turns() == []
+    assert sent == []
+    lines = [r.getMessage() for r in caplog.records if "event=unrecognised_number" in r.getMessage()]
+    assert len(lines) == 2
+    assert "stored=true" in lines[0]
+    assert "stored=false" in lines[1]
+
+
+def test_unrecognised_number_media_without_caption_is_saved(sent):
+    response = post_message("MM001", body=None, num_media=1, to=UNKNOWN_NUMBER)
+    assert response.status_code == 204
+    assert stored_unrecognised() == [("MM001", UNKNOWN_NUMBER, CUSTOMER_NUMBER, "", 1)]
+    assert stored_turns() == []
+
+
+def test_unrecognised_number_log_does_not_contain_the_body(sent, caplog):
+    with caplog.at_level(logging.INFO):
+        post_message("SM001", body="secret-body-text", to=UNKNOWN_NUMBER)
+    assert "event=unrecognised_number" in caplog.text
+    assert "secret-body-text" not in caplog.text
+    assert stored_unrecognised()[0][3] == "secret-body-text"
 
 
 # ---------- failure paths ----------

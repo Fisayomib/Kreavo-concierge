@@ -6,7 +6,7 @@ from twilio.rest import Client
 from twilio.base.exceptions import TwilioRestException
 import logging
 import uuid
-from app.db import get_connection, find_tenant_id, record_inbound_turn, set_reply_status
+from app.db import get_connection, find_tenant_id, record_inbound_turn, set_reply_status, record_unrecognised_message
 
 
 load_dotenv()
@@ -45,7 +45,8 @@ def hook():
         with get_connection() as conn:
             tenant_id = find_tenant_id(conn, business_number)
             if tenant_id is None:
-                logger.warning("event=unrecognised_number request_id=%s message_sid=%s to=%s", request_id, message_sid, business_number)
+                stored = record_unrecognised_message(conn, message_sid, business_number, sender, message, num_media)
+                logger.error("event=unrecognised_number request_id=%s message_sid=%s to=%s from=%s stored=%s", request_id, message_sid, business_number, sender, "true" if stored else "false")
                 return "", 204
             is_new = record_inbound_turn(conn, tenant_id, message_sid, sender, message, num_media)
     except Exception as e:

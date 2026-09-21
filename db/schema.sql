@@ -24,6 +24,18 @@ CREATE TABLE IF NOT EXISTS turns (
         CHECK (reply_status IN ('pending', 'sent', 'failed'))
 );
 
+-- Messages whose To number matched no tenant. Deliberately references neither tenants nor turns:
+-- they belong to no tenant and must never appear in any tenant's conversation.
+CREATE TABLE IF NOT EXISTS unrecognised_messages (
+    id              BIGSERIAL PRIMARY KEY,
+    message_sid     TEXT NOT NULL UNIQUE,
+    to_number       TEXT NOT NULL,
+    from_number     TEXT NOT NULL,
+    body            TEXT NOT NULL DEFAULT '',
+    num_media       INTEGER NOT NULL DEFAULT 0,
+    received_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- CREATE TABLE IF NOT EXISTS does not add the constraint to a tenants table that
 -- already existed, and Postgres has no ADD CONSTRAINT IF NOT EXISTS, so check first.
 DO $$

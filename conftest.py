@@ -31,7 +31,7 @@ def create_tables():
 def clean_db():
     from app.db import get_connection
     with get_connection() as conn:
-        conn.execute("TRUNCATE turns, tenants RESTART IDENTITY")
+        conn.execute("TRUNCATE turns, tenants, unrecognised_messages RESTART IDENTITY")
         conn.execute(
             "INSERT INTO tenants (name, whatsapp_number) VALUES (%s, %s)",
             ("Test Tenant", TEST_TENANT_NUMBER),

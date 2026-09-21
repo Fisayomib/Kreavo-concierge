@@ -37,3 +37,16 @@ def set_reply_status(conn, message_sid, status):
         "UPDATE turns SET reply_status = %s WHERE message_sid = %s",
         (status, message_sid),
     )
+
+
+def record_unrecognised_message(conn, message_sid, to_number, from_number, body, num_media):
+    row = conn.execute(
+        """
+        INSERT INTO unrecognised_messages (message_sid, to_number, from_number, body, num_media)
+        VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (message_sid) DO NOTHING
+        RETURNING id
+        """,
+        (message_sid, to_number, from_number, body, num_media),
+    ).fetchone()
+    return row is not None
