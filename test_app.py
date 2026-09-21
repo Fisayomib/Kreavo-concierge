@@ -56,6 +56,14 @@ def stored_turns():
         ).fetchall()
 
 
+def reply_status_of(message_sid):
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT reply_status FROM turns WHERE message_sid = %s", (message_sid,)
+        ).fetchone()
+    return None if row is None else row[0]
+
+
 # ---------- acceptance criteria ----------
 
 def test_new_message_stores_one_turn_for_the_tenant(sent):
@@ -148,6 +156,74 @@ def test_reply_failure_keeps_the_turn_and_returns_204(monkeypatch, caplog):
     assert response.status_code == 204
     assert len(stored_turns()) == 1
     assert "event=reply_failed" in caplog.text
+
+
+# ---------- reply status ----------
+
+def test_successful_send_marks_the_turn_sent(sent):
+    response = post_message("SM001")
+    assert response.status_code == 204
+    assert reply_status_of("SM001") == "sent"
+
+
+def test_failed_send_marks_the_turn_failed_and_returns_204(monkeypatch, caplog):
+    class RaisingClient:
+        def __init__(self, sid, token):
+            self.messages = RaisingMessages()
+
+    monkeypatch.setattr("app.app.Client", RaisingClient)
+    with caplog.at_level(logging.ERROR):
+        response = post_message("SM001")
+    assert response.status_code == 204
+    assert reply_status_of("SM001") == "failed"
+    assert "event=reply_failed" in caplog.text
+    assert "message_sid=SM001" in caplog.text
+
+
+def test_turn_is_pending_when_the_send_is_attempted(monkeypatch):
+    seen = []
+
+    class PeekingMessages:
+        def create(self, **kwargs):
+            seen.append(reply_status_of("SM001"))
+
+    class PeekingClient:
+        def __init__(self, sid, token):
+            self.messages = PeekingMessages()
+
+    monkeypatch.setattr("app.app.Client", PeekingClient)
+    post_message("SM001")
+    assert seen == ["pending"]
+    assert reply_status_of("SM001") == "sent"
+
+
+def test_duplicate_delivery_leaves_reply_status_unchanged(sent, monkeypatch):
+    post_message("SM001")
+    assert reply_status_of("SM001") == "sent"
+
+    def must_not_be_called(*args, **kwargs):
+        raise AssertionError("set_reply_status must not run for a duplicate delivery")
+
+    monkeypatch.setattr("app.app.set_reply_status", must_not_be_called)
+    response = post_message("SM001")
+    assert response.status_code == 204
+    assert reply_status_of("SM001") == "sent"
+    assert len(sent) == 1
+
+
+def test_status_update_failure_still_returns_204_and_leaves_pending(sent, monkeypatch, caplog):
+    def broken_update(*args, **kwargs):
+        raise RuntimeError("database down")
+
+    monkeypatch.setattr("app.app.set_reply_status", broken_update)
+    with caplog.at_level(logging.ERROR):
+        response = post_message("SM001")
+    assert response.status_code == 204
+    assert len(sent) == 1
+    assert "event=reply_status_update_failed" in caplog.text
+    assert "message_sid=SM001" in caplog.text
+    assert "status=sent" in caplog.text
+    assert reply_status_of("SM001") == "pending"
 
 
 # ---------- request ids ----------

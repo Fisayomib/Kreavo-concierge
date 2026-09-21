@@ -69,6 +69,31 @@ def test_add_tenant_rejects_a_duplicate_given_without_the_prefix():
             add_tenant(conn, "Duplicate", "+14155238886")
 
 
+# ---------- database rule on reply_status ----------
+
+def test_unknown_reply_status_is_rejected_by_the_database():
+    with pytest.raises(psycopg.errors.CheckViolation, match="turns_reply_status_values"):
+        with get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO turns (tenant_id, message_sid, customer_number, role, body, num_media, reply_status)
+                VALUES (1, 'SM001', 'whatsapp:+2340000000000', 'customer', 'hello', 0, 'banana')
+                """
+            )
+
+
+def test_reply_status_allows_null_for_untracked_turns():
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO turns (tenant_id, message_sid, customer_number, role, body, num_media)
+            VALUES (1, 'SM001', 'whatsapp:+2340000000000', 'assistant', 'hello', 0)
+            """
+        )
+        status = conn.execute("SELECT reply_status FROM turns WHERE message_sid = 'SM001'").fetchone()[0]
+    assert status is None
+
+
 # ---------- apply_schema ----------
 
 def test_apply_schema_can_run_twice_in_a_row():
@@ -77,6 +102,9 @@ def test_apply_schema_can_run_twice_in_a_row():
             apply_schema(conn)
     with get_connection() as conn:
         constraints = conn.execute(
-            "SELECT count(*) FROM pg_constraint WHERE conname = 'tenants_whatsapp_number_format'"
+            """
+            SELECT count(*) FROM pg_constraint
+            WHERE conname IN ('tenants_whatsapp_number_format', 'turns_reply_status_values')
+            """
         ).fetchone()[0]
-    assert constraints == 1
+    assert constraints == 2

@@ -17,7 +17,11 @@ CREATE TABLE IF NOT EXISTS turns (
     role            TEXT NOT NULL CHECK (role IN ('customer', 'assistant')),
     body            TEXT NOT NULL DEFAULT '',
     num_media       INTEGER NOT NULL DEFAULT 0,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- NULL means no reply is tracked: assistant turns, and customer turns stored before this column existed.
+    reply_status    TEXT,
+    CONSTRAINT turns_reply_status_values
+        CHECK (reply_status IN ('pending', 'sent', 'failed'))
 );
 
 -- CREATE TABLE IF NOT EXISTS does not add the constraint to a tenants table that
@@ -32,6 +36,23 @@ BEGIN
         ALTER TABLE tenants
             ADD CONSTRAINT tenants_whatsapp_number_format
             CHECK (whatsapp_number ~ '^whatsapp:\+[1-9][0-9]{6,14}$');
+    END IF;
+END
+$$;
+
+-- turns tables created before reply_status existed need the column and its constraint added.
+ALTER TABLE turns ADD COLUMN IF NOT EXISTS reply_status TEXT;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'turns_reply_status_values'
+          AND conrelid = 'turns'::regclass
+    ) THEN
+        ALTER TABLE turns
+            ADD CONSTRAINT turns_reply_status_values
+            CHECK (reply_status IN ('pending', 'sent', 'failed'));
     END IF;
 END
 $$;

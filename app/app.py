@@ -6,7 +6,7 @@ from twilio.rest import Client
 from twilio.base.exceptions import TwilioRestException
 import logging
 import uuid
-from app.db import get_connection, find_tenant_id, record_inbound_turn 
+from app.db import get_connection, find_tenant_id, record_inbound_turn, set_reply_status
 
 
 load_dotenv()
@@ -65,9 +65,18 @@ def hook():
             from_=f"whatsapp:{TWILIO_SANDBOX_NUMBER}",
             to=sender
         )
-        logger.info("event=reply_sent request_id=%s sender=%s", request_id, sender)
+        reply_status = "sent"
+        logger.info("event=reply_sent request_id=%s message_sid=%s sender=%s", request_id, message_sid, sender)
     except Exception as e:
-        logger.error("event=reply_failed request_id=%s sender=%s error=%s", request_id, sender, e)
+        reply_status = "failed"
+        logger.error("event=reply_failed request_id=%s message_sid=%s sender=%s error=%s", request_id, message_sid, sender, e)
+
+    # Twilio gets 204 either way; the turn's reply_status is what records whether a reply is still owed.
+    try:
+        with get_connection() as conn:
+            set_reply_status(conn, message_sid, reply_status)
+    except Exception as e:
+        logger.error("event=reply_status_update_failed request_id=%s message_sid=%s status=%s error=%s", request_id, message_sid, reply_status, e)
     return "", 204
 def check_settings():
     required = ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_SANDBOX_NUMBER"]
