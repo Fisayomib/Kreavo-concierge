@@ -44,7 +44,7 @@ Source: https://www.twilio.com/docs/usage/webhooks/webhooks-connection-overrides
 
 So duplicates are possible with default settings, and become more likely if retry settings change. We handle duplicates on every delivery regardless: the check costs one insert when no duplicate arrives, and missing one costs the customer a doubled reply.
 
-The current skeleton returns 500 when the outbound send fails. Under the design below, the webhook no longer sends anything itself, so it no longer has that failure path. It returns 204 once the inbound turn is stored (or recognised as a duplicate), and returns 500 only if the turn could not be stored. That is the one case where a Twilio retry is what we want.
+The Sprint 2 skeleton returned 500 when the outbound send failed, which invited exactly the retry that becomes a duplicate. That path is gone. The webhook now returns 204 once the inbound turn is stored (or recognised as a duplicate), and returns 500 only if the turn could not be stored. That is the one case where a Twilio retry is what we want: nothing was saved, so the retry is not a duplicate.
 
 ## Rejected alternatives
 - **A list in the app's memory.** Wiped on every restart, and each worker has its own copy. A duplicate that arrives after a restart, or at a different worker, looks new and gets a second reply.
@@ -56,40 +56,81 @@ The current skeleton returns 500 when the outbound send fails. Under the design 
 
 # Part 2: Slow Answers
 
+## Reply status
+Every customer turn carries a `reply_status` column that says where its reply stands. This is the single source of truth for "does this customer still need an answer":
+
+| `reply_status` | Meaning | Final? |
+|---|---|---|
+| `pending` | A reply is owed and no worker has claimed it. | No |
+| `processing` | A worker has claimed it (`claimed_at` is set) and is working on it. | No |
+| `sending` | The worker is about to hand the answer to Twilio, or is in the middle of doing so. | No |
+| `sent` | Twilio accepted the answer. | Yes |
+| `failed` | A send attempt failed. A reply is still owed; the worker picks it up like `pending`. | No |
+| `fallback_sent` | Every attempt failed or the deadline passed, and the fallback message was sent. | Yes |
+| `expired` | The 23-hour guard stopped a send (see below). Nothing was sent. | Yes |
+
+`NULL` means no reply is tracked: assistant turns, and customer turns stored before this column existed.
+
+The CONV-002 code uses `pending`, `sent` and `failed`. The outbound ticket adds the rest when it builds the worker.
+
 ## Chosen behaviour
-1. The webhook stores the inbound turn with `status = pending` and returns 204 to Twilio straight away. No Claude call happens inside the webhook request.
-2. A separate **worker process** (a second long-running program, started alongside the web app) owns every reply from that point on. It picks up pending turns from Postgres.
-3. If the answer is ready within 5 seconds, the customer just gets the answer.
-4. If the answer is not ready after 5 seconds, the worker sends one holding message:
+1. The webhook stores the inbound turn with `reply_status = pending` and returns 204 to Twilio straight away. No Claude call happens inside the webhook request.
+2. A separate **worker process** (a second long-running program, started alongside the web app) owns every reply from that point on. It picks up `pending` and `failed` turns from Postgres.
+3. If the answer is ready within 5 seconds of the inbound message, the customer just gets the answer.
+4. If it is not, the worker sends one holding message:
    > "Got your message, I'm working on it. I'll reply here in a moment."
-   It sends this once per turn and records `holding_sent = true` on the turn, so it is never sent twice.
-5. When the answer is ready, the worker sends it as its own outbound message, stores it as the assistant turn, and marks the inbound turn `answered`.
+5. When the answer is ready, the worker sends it as its own outbound message (see "Sending the answer" for the exact order).
 
 Why 5 seconds: silence makes customers send more messages, and each of those is a new message (new MessageSid) that needs its own answer. Five seconds lets fast answers skip the holding message entirely, and it's short enough to land before the customer starts wondering.
 
 Why this shape: Twilio's 15-second limit only applies to the webhook request, and the webhook now finishes in milliseconds. The holding-message timer and the Claude call run in the worker, on their own clock.
 
+**Until the outbound ticket ships:** there is no worker yet. The webhook sends a placeholder acknowledgement itself and records `sent` or `failed`. Every `pending` or `failed` turn from that period is left in the database for the worker to pick up when it ships. When the worker ships, the webhook stops sending anything, and `pending` then only ever means "unclaimed".
+
+## Every call has a time limit
+Nothing the worker waits on may run without a limit. A call that never returns is treated as a failure, not as "still working":
+
+- **Claude call:** 60-second timeout, enforced by the HTTP client, so a hung request raises an error instead of waiting forever. Up to 3 attempts, with 2s and 4s waits between them.
+- **Twilio send:** 15-second timeout per send. Up to 3 attempts, with 2s and 4s waits between them.
+
+This gives a **worst-case time for one claim**: Claude (3 × 60s + 6s) + holding message (15s) + answer or fallback send (3 × 15s + 6s) = about **4.2 minutes**.
+
+The holding-message timer runs while the Claude call is in flight: the worker starts the call in the background, waits up to 5 seconds (measured from the inbound message), sends the holding message if the call hasn't finished, then keeps waiting for the call up to its timeout.
+
 ## Who owns the reply after the 204
-The turn row in Postgres is the obligation. As long as a turn is `pending` or `processing`, someone still owes the customer a reply, and that survives any single process dying.
+The turn row in Postgres is the obligation. As long as a turn is `pending`, `processing`, `sending` or `failed`, a reply is still owed, and that survives any single process dying.
 
-- The worker claims a turn by setting `status = processing` and `claimed_at = now()`. It uses `SELECT ... FOR UPDATE SKIP LOCKED` so two workers never grab the same turn (a row being claimed is locked and skipped by the others).
-- **If the worker dies mid-turn:** the turn stays `processing`. Every minute, and on startup, the worker puts turns that have been `processing` for more than 2 minutes back to `pending`, and they are picked up again. The holding message is not re-sent if `holding_sent` is already true.
-- **If the Claude call fails:** the worker retries up to 3 times with a short wait between tries (2s, 4s, 8s).
-- **If all retries fail, or the answer isn't ready within 10 minutes of the inbound message:** the worker sends a fallback message and marks the turn `failed`:
-  > "Sorry, I couldn't get you an answer just now. Please try again in a few minutes, or reply HUMAN to reach the team."
-  It logs `event=reply_failed message_sid=... reason=...`.
-- **If the outbound Twilio send fails:** it is retried the same way. A turn is only marked `answered` after Twilio accepts the message.
+- **Claiming:** the worker sets `reply_status = processing` and `claimed_at = now()`, using `SELECT ... FOR UPDATE SKIP LOCKED` so two workers never grab the same turn (a row being claimed is locked and skipped by the others).
+- **The reaper:** every minute, and on startup, turns that have been `processing` or `sending` for more than **6 minutes** are returned to `pending`. Because every claim finishes within about 4.2 minutes, a turn still claimed after 6 minutes can only belong to a worker that died, never to one that is busy. **Rule: the reaper threshold must always stay above the worst-case claim time. Anyone who changes a timeout or a retry count must recalculate both numbers.**
+- **Deadline:** no Claude attempt starts more than 10 minutes after the inbound message. Past that point the worker sends the fallback instead.
+- **Fallback:** if every Claude attempt fails, or the deadline passes, the worker sends:
+  > "Sorry, I couldn't get you an answer just now. Please try again in a few minutes."
+  It sets `reply_status = fallback_sent` and logs `event=reply_gave_up message_sid=... reason=...`. The fallback offers nothing the system can't do. Human handoff is not in v1; if it is built later, its ticket changes this text.
 
-So the customer always gets either the answer or the fallback. They never get a holding message followed by silence.
+So the customer always gets either the answer or the fallback. Because every wait has a limit, a hung call ends as a failure and still reaches the fallback; they never get a holding message followed by silence.
 
-Known limit: if the worker dies after Twilio accepted the reply but before the turn was marked `answered`, the turn is retried and the customer could get the reply twice. That window is a few milliseconds; we accept it for v1 and log `event=reply_resent` when a turn that already has an assistant turn is re-processed.
+## Sending the answer
+Sending is the only step that cannot be undone, so the record comes first:
+
+1. Set `reply_status = sending` and `send_started_at = now()`, and commit.
+2. Send the answer through Twilio.
+3. When Twilio accepts it, in one transaction: store the assistant turn and set `reply_status = sent`.
+4. If Twilio rejects the send (an error response, so nothing went out): set `reply_status = failed`, clear `send_started_at`, log `event=reply_failed`, and retry as above.
+
+**Accepted risk (at-least-once):** if the worker dies after Twilio accepted the answer but before step 3 commits, the turn is still `sending`. The reaper returns it to `pending` after 6 minutes but leaves `send_started_at` in place. The next worker to claim it sees `send_started_at` is set, which means an answer may already have gone out. It logs `event=reply_resent message_sid=...` and sends again. The customer may get the answer twice, but it is never silent, because `send_started_at` is written *before* the send and only cleared when Twilio has definitely rejected it. We choose a rare, logged double reply over a lost reply, because the ticket forbids losing the reply. If double replies ever show up in the logs, the upgrade is to ask Twilio's API whether a message already went to that customer before resending.
+
+**The holding message is the opposite choice (at-most-once):** `holding_sent = true` is saved *before* the holding message is sent. A crash can lose the holding message, but can never send it twice. Losing a holding message costs nothing, since the answer or fallback still follows; sending it twice is noise.
 
 ## WhatsApp's 24-hour window
 WhatsApp only allows free-form messages within 24 hours of the customer's last message. Outside that window, the send is rejected.
 
-Our own limits keep us far inside it: every turn ends in `answered` or `failed` within 10 minutes of the inbound message. As a hard guard, the worker never sends a free-form message for a turn whose inbound message is more than 23 hours old. It marks the turn `expired` and logs `event=reply_expired message_sid=...` instead. Sending approved template messages outside the window is out of scope for v1.
+Our own limits keep us far inside it: every turn reaches `sent` or `fallback_sent` within minutes of the inbound message. As a hard guard, before **every** send (holding, answer, fallback), the worker checks the inbound message's age. If it is more than 23 hours old, the worker sends nothing, sets `reply_status = expired` and logs `event=reply_expired message_sid=...`. Because every call has a time limit, the worker always reaches this check. Sending approved template messages outside the window is out of scope for v1.
 
 ## Rejected alternatives
 - **Waiting inside the webhook and returning the answer as the webhook response.** Spends Twilio's 15-second budget on the Claude call and risks the timeout, which causes a failed delivery and a possible retry.
 - **Starting a background thread from the Flask request.** It dies with the web process, and nothing restarts it, so the reply is lost after the 204.
 - **Celery with Redis.** A proven job queue, but it adds a new service to run and learn. A worker reading pending turns from Postgres gives the same guarantee using the database we already have. Revisit if volume outgrows it.
+- **Returning 500 on a failed send so Twilio retries.** By default Twilio does not retry a 500, and a retry would be caught by the duplicate check anyway. The reply status in the database is what makes a failed send recoverable.
+- **A heartbeat instead of call time limits.** A worker stuck on a hung call still has a working heartbeat, so it would look alive forever. Time limits are needed either way, and with them the reaper threshold alone is enough.
+- **A separate deadline watchdog that sends the fallback.** It races with the worker: the real answer can land right after the fallback. The worker checking the deadline itself avoids the race.
+- **Never resending a turn left in `sending` (at-most-once).** Guarantees no double reply, but a crash loses the reply, which the ticket forbids.
