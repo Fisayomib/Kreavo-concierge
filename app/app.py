@@ -5,7 +5,8 @@ from flask import Flask, request
 from twilio.rest import Client
 from twilio.base.exceptions import TwilioRestException
 import logging
-import uuid 
+import uuid
+from app.db import get_connection, find_tenant_id, record_inbound_turn 
 
 
 load_dotenv()
@@ -29,21 +30,45 @@ def status():
 @app.route("/webhook", methods = ["POST"])
 def hook():
     request_id = uuid.uuid4().hex[:8]
-    client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-    message = request.form.get("Body", "")
+    message_sid = request.form.get("MessageSid", "")
+    business_number = request.form.get("To", "")
     sender = request.form.get("From", "")
-    logger.info("event=message_received request_id=%s sender=%s", request_id, sender)
+    message = request.form.get("Body", "")
+    num_media = int(request.form.get("NumMedia", "0") or 0)
+    logger.info("event=message_received request_id=%s message_sid=%s sender=%s", request_id, message_sid, sender)
+
+    if not message_sid:
+        logger.warning("event=missing_message_sid request_id=%s sender=%s", request_id, sender)
+        return "Missing MessageSid", 400
+
     try:
-        message_sent = client.messages.create(
-                    body="Thanks for your message — we've received it and will get back to you shortly.",
-                    from_= f"whatsapp:{TWILIO_SANDBOX_NUMBER}",
-                    to=sender
-                )
+        with get_connection() as conn:
+            tenant_id = find_tenant_id(conn, business_number)
+            if tenant_id is None:
+                logger.warning("event=unrecognised_number request_id=%s message_sid=%s to=%s", request_id, message_sid, business_number)
+                return "", 204
+            is_new = record_inbound_turn(conn, tenant_id, message_sid, sender, message, num_media)
+    except Exception as e:
+        logger.error("event=turn_store_failed request_id=%s message_sid=%s error=%s", request_id, message_sid, e)
+        return "Store failed", 500
+
+    if not is_new:
+        logger.info("event=duplicate_delivery request_id=%s message_sid=%s tenant_id=%s", request_id, message_sid, tenant_id)
+        return "", 204
+
+    logger.info("event=turn_stored request_id=%s message_sid=%s tenant_id=%s", request_id, message_sid, tenant_id)
+
+    client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+    try:
+        client.messages.create(
+            body="Thanks for your message — we've received it and will get back to you shortly.",
+            from_=f"whatsapp:{TWILIO_SANDBOX_NUMBER}",
+            to=sender
+        )
         logger.info("event=reply_sent request_id=%s sender=%s", request_id, sender)
     except Exception as e:
         logger.error("event=reply_failed request_id=%s sender=%s error=%s", request_id, sender, e)
-        return "Send failed", 500    
-    return "", 204 
+    return "", 204
 def check_settings():
     required = ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_SANDBOX_NUMBER"]
     missing = []

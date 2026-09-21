@@ -35,7 +35,9 @@ In development.
    - macOS/Linux: `source venv/bin/activate`
 3. Install dependencies: `pip install -r requirements.txt`
 4. Copy `.env.example` to `.env` and fill in your Twilio credentials (see Configuration below)
-5. Start the service: `python app/app.py` — it will be available at http://127.0.0.1:5000
+5. Start the service from the project root: `python -m app.app` — it will be available at http://127.0.0.1:5000
+
+   Run it as a module, not as a file. `app.py` imports from `app.db`, which only resolves when Python starts from the project root; `python app/app.py` will fail with an import error.
 
 If a required setting is missing, the service refuses to start and names the setting.
 
