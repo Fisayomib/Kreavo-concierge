@@ -1,9 +1,3 @@
-"""Create or update the database tables.
-
-Run from the project root:
-    python -m app.setup_db          # applies db/schema.sql to DATABASE_URL
-    python -m app.setup_db --test   # applies it to TEST_DATABASE_URL instead
-"""
 import argparse
 import os
 import sys

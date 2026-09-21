@@ -1,11 +1,3 @@
-"""Add a tenant, keyed by the WhatsApp number Twilio delivers its messages to.
-
-Run from the project root:
-    python -m app.add_tenant "Kreavo Sandbox" +14155238886
-
-The number may be given with or without the "whatsapp:" prefix; it is stored
-with the prefix, which is how Twilio sends it in the webhook's `To` field.
-"""
 import argparse
 import os
 import re
