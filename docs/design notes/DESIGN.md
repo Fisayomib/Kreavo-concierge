@@ -75,7 +75,7 @@ The CONV-002 code uses `pending`, `sent` and `failed`. The outbound ticket adds 
 
 ## Chosen behaviour
 1. The webhook stores the inbound turn with `reply_status = pending` and returns 204 to Twilio straight away. No Claude call happens inside the webhook request.
-2. A separate **worker process** (a second long-running program, started alongside the web app) owns every reply from that point on. It picks up `pending` and `failed` turns from Postgres.
+2. A separate **worker process** (a second long-running program, started alongside the web app) owns every reply from that point on. It picks up `pending` and `failed` turns from Postgres. When it answers a customer, it answers all of that customer's unanswered turns together, in one reply (see Part 4).
 3. If the answer is ready within 5 seconds of the inbound message, the customer just gets the answer.
 4. If it is not, the worker sends one holding message:
    > "Got your message, I'm working on it. I'll reply here in a moment."
@@ -156,3 +156,27 @@ Why silence: any reply would go out from that business's number and speak for a 
 - **A warning log only** (the first CONV-002 version). The customer's message was thrown away and the only record was a log line, which breaks this note's rule that nothing is silently absorbed.
 
 Out of scope for v1: automatically moving saved messages into a tenant's conversation once the tenant is added, and real-time alerting beyond the ERROR log line.
+
+---
+
+# Part 4: Turn Order
+
+## What "order" means
+Turns in a conversation are ordered by `received_at`, then `id`. `received_at` is stamped on the first line of the webhook, before any database work, so it records when our server received the webhook. `id` only breaks ties.
+
+This is the order our server received the webhooks, not the order the customer sent the messages. Twilio's inbound webhook carries no send timestamp, so the customer's true send order is not available to us. Two messages whose webhooks reach us at effectively the same instant, or that Twilio delivers out of order, can be stored in either order. We state that limit rather than promise more than the platform gives us.
+
+Why not `id` alone: `id` is handed out when the insert runs, so a request that is slower before its insert (for example, a slow tenant lookup) gets a higher `id` even though it arrived first. Stamping at the start of the request removes that source of reordering. A test proves it by slowing the first of two concurrent requests.
+
+v1 runs one web server, so every `received_at` comes from one clock. If more servers are added, their clocks must be kept in sync, or their stamps can't be compared.
+
+## Where order is read
+`get_conversation` in `app/db.py` is the only place conversation order is defined. Any code that builds a reply from history must use it, so the rule lives in one place.
+
+## Designing around the limit
+The worker answers all of a customer's unanswered turns together, in one reply. Messages sent close together are the only ones that can swap, and they are read as a single batch, so their exact order within it rarely changes the answer.
+
+## Rejected alternatives
+- **Asking Twilio's API for each message's creation time.** An extra call per message that can itself fail, and its precision is one second, so quick messages still tie.
+- **Processing one customer's messages one at a time with a database lock.** It slows every webhook, and whichever request takes the lock first is still arbitrary, so it doesn't recover the true order.
+- **Keeping `id` order and leaving the note unchanged.** The note and the acceptance criterion would promise an order the code does not deliver.
