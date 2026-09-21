@@ -134,3 +134,25 @@ Our own limits keep us far inside it: every turn reaches `sent` or `fallback_sen
 - **A heartbeat instead of call time limits.** A worker stuck on a hung call still has a working heartbeat, so it would look alive forever. Time limits are needed either way, and with them the reaper threshold alone is enough.
 - **A separate deadline watchdog that sends the fallback.** It races with the worker: the real answer can land right after the fallback. The worker checking the deadline itself avoids the race.
 - **Never resending a turn left in `sending` (at-most-once).** Guarantees no double reply, but a crash loses the reply, which the ticket forbids.
+
+---
+
+# Part 3: Messages to an Unrecognised Number
+
+## When it happens
+The webhook's `To` number is not in `tenants`. That means a Twilio number is pointed at this webhook with no tenant row behind it: for example, a new client's number was connected before `add_tenant` was run, or a former client's number still points here. The customer is real; we just don't know which business they are writing to.
+
+## Chosen behaviour
+- The customer receives nothing.
+- The message is saved in `unrecognised_messages`, not in `turns`. It belongs to no tenant, so it must never appear in any tenant's conversation. Duplicate deliveries are caught by `message_sid`, the same way as for turns.
+- It is logged at ERROR level: `event=unrecognised_number message_sid=... to=... from=... stored=true|false`. The message body is kept in the database, never in the log.
+- The webhook returns 204. If saving fails, it returns 500, the same as a failed turn store.
+
+Why silence: any reply would go out from that business's number and speak for a business we can't identify, possibly one that is no longer our client. Silence is the only response that can't be wrong on someone else's behalf. The cost of that silence is carried by us, not the customer: the ERROR log makes the misconfiguration visible, and the saved message means nothing the customer wrote is lost. Once the tenant is added, the operator can follow up.
+
+## Rejected alternatives
+- **A generic auto-reply** ("This number isn't set up yet"). It speaks for an unknown business, possibly a former client, and costs a Twilio message per delivery.
+- **Returning an error so Twilio's console alerts us.** It misuses an error code as a notification, and depending on retry settings it invites re-delivery.
+- **A warning log only** (the first CONV-002 version). The customer's message was thrown away and the only record was a log line, which breaks this note's rule that nothing is silently absorbed.
+
+Out of scope for v1: automatically moving saved messages into a tenant's conversation once the tenant is added, and real-time alerting beyond the ERROR log line.
