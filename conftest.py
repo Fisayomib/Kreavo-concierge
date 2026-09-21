@@ -18,6 +18,15 @@ os.environ["DATABASE_URL"] = test_db
 TEST_TENANT_NUMBER = "whatsapp:+14155238886"
 
 
+@pytest.fixture(scope="session", autouse=True)
+def create_tables():
+    """Creates the test database's tables once per session, so a fresh kreavo_test just works."""
+    from app.db import get_connection
+    from app.setup_db import apply_schema
+    with get_connection() as conn:
+        apply_schema(conn)
+
+
 @pytest.fixture(autouse=True)
 def clean_db():
     from app.db import get_connection

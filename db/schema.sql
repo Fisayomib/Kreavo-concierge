@@ -1,8 +1,12 @@
+-- Safe to run any number of times.
+
 CREATE TABLE IF NOT EXISTS tenants (
     id              BIGSERIAL PRIMARY KEY,
     name            TEXT NOT NULL,
     whatsapp_number TEXT NOT NULL UNIQUE,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT tenants_whatsapp_number_format
+        CHECK (whatsapp_number ~ '^whatsapp:\+[1-9][0-9]{6,14}$')
 );
 
 CREATE TABLE IF NOT EXISTS turns (
@@ -15,3 +19,19 @@ CREATE TABLE IF NOT EXISTS turns (
     num_media       INTEGER NOT NULL DEFAULT 0,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- CREATE TABLE IF NOT EXISTS does not add the constraint to a tenants table that
+-- already existed, and Postgres has no ADD CONSTRAINT IF NOT EXISTS, so check first.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'tenants_whatsapp_number_format'
+          AND conrelid = 'tenants'::regclass
+    ) THEN
+        ALTER TABLE tenants
+            ADD CONSTRAINT tenants_whatsapp_number_format
+            CHECK (whatsapp_number ~ '^whatsapp:\+[1-9][0-9]{6,14}$');
+    END IF;
+END
+$$;
