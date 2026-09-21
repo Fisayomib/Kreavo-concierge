@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS turns (
     body            TEXT NOT NULL DEFAULT '',
     num_media       INTEGER NOT NULL DEFAULT 0,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- Stamped on the first line of the webhook, before any database work. Conversation order is (received_at, id).
+    received_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     -- NULL means no reply is tracked: assistant turns, and customer turns stored before this column existed.
     reply_status    TEXT,
     CONSTRAINT turns_reply_status_values
@@ -68,3 +70,12 @@ BEGIN
     END IF;
 END
 $$;
+
+-- turns tables created before received_at existed: add it, backfill from created_at, then tighten.
+ALTER TABLE turns ADD COLUMN IF NOT EXISTS received_at TIMESTAMPTZ;
+UPDATE turns SET received_at = created_at WHERE received_at IS NULL;
+ALTER TABLE turns ALTER COLUMN received_at SET DEFAULT now();
+ALTER TABLE turns ALTER COLUMN received_at SET NOT NULL;
+
+-- Reading one customer's conversation for one tenant, in order.
+CREATE INDEX IF NOT EXISTS turns_conversation_order ON turns (tenant_id, customer_number, received_at, id);

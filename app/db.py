@@ -17,17 +17,30 @@ def find_tenant_id(conn, whatsapp_number):
     return row[0]
 
 
-def record_inbound_turn(conn, tenant_id, message_sid, customer_number, body, num_media):
+def record_inbound_turn(conn, tenant_id, message_sid, customer_number, body, num_media, received_at):
     row = conn.execute(
         """
-        INSERT INTO turns (tenant_id, message_sid, customer_number, role, body, num_media, reply_status)
-        VALUES (%s, %s, %s, 'customer', %s, %s, 'pending')
+        INSERT INTO turns (tenant_id, message_sid, customer_number, role, body, num_media, reply_status, received_at)
+        VALUES (%s, %s, %s, 'customer', %s, %s, 'pending', %s)
         ON CONFLICT (message_sid) DO NOTHING
         RETURNING id
         """,
-        (tenant_id, message_sid, customer_number, body, num_media),
+        (tenant_id, message_sid, customer_number, body, num_media, received_at),
     ).fetchone()
     return row is not None
+
+
+def get_conversation(conn, tenant_id, customer_number):
+    # The only place conversation order is defined: when we received the webhook, then id to break ties.
+    return conn.execute(
+        """
+        SELECT message_sid, role, body, num_media, received_at
+        FROM turns
+        WHERE tenant_id = %s AND customer_number = %s
+        ORDER BY received_at, id
+        """,
+        (tenant_id, customer_number),
+    ).fetchall()
 
 
 def set_reply_status(conn, message_sid, status):
@@ -39,14 +52,14 @@ def set_reply_status(conn, message_sid, status):
     )
 
 
-def record_unrecognised_message(conn, message_sid, to_number, from_number, body, num_media):
+def record_unrecognised_message(conn, message_sid, to_number, from_number, body, num_media, received_at):
     row = conn.execute(
         """
-        INSERT INTO unrecognised_messages (message_sid, to_number, from_number, body, num_media)
-        VALUES (%s, %s, %s, %s, %s)
+        INSERT INTO unrecognised_messages (message_sid, to_number, from_number, body, num_media, received_at)
+        VALUES (%s, %s, %s, %s, %s, %s)
         ON CONFLICT (message_sid) DO NOTHING
         RETURNING id
         """,
-        (message_sid, to_number, from_number, body, num_media),
+        (message_sid, to_number, from_number, body, num_media, received_at),
     ).fetchone()
     return row is not None

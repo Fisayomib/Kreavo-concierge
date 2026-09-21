@@ -6,6 +6,7 @@ from twilio.rest import Client
 from twilio.base.exceptions import TwilioRestException
 import logging
 import uuid
+from datetime import datetime, timezone
 from app.db import get_connection, find_tenant_id, record_inbound_turn, set_reply_status, record_unrecognised_message
 
 
@@ -29,28 +30,34 @@ def status():
 
 @app.route("/webhook", methods = ["POST"])
 def hook():
+    received_at = datetime.now(timezone.utc)  # stamped before anything else: this is what conversation order is built on
     request_id = uuid.uuid4().hex[:8]
     message_sid = request.form.get("MessageSid", "")
     business_number = request.form.get("To", "")
     sender = request.form.get("From", "")
     message = request.form.get("Body", "")
     num_media = int(request.form.get("NumMedia", "0") or 0)
-    logger.info("event=message_received request_id=%s message_sid=%s sender=%s", request_id, message_sid, sender)
+    logger.info("event=message_received request_id=%s message_sid=%s sender=%s received_at=%s", request_id, message_sid, sender, received_at.isoformat())
 
     if not message_sid:
         logger.warning("event=missing_message_sid request_id=%s sender=%s", request_id, sender)
         return "Missing MessageSid", 400
 
+    storing = "turn"
     try:
         with get_connection() as conn:
             tenant_id = find_tenant_id(conn, business_number)
             if tenant_id is None:
-                stored = record_unrecognised_message(conn, message_sid, business_number, sender, message, num_media)
+                storing = "unrecognised"
+                stored = record_unrecognised_message(conn, message_sid, business_number, sender, message, num_media, received_at)
                 logger.error("event=unrecognised_number request_id=%s message_sid=%s to=%s from=%s stored=%s", request_id, message_sid, business_number, sender, "true" if stored else "false")
                 return "", 204
-            is_new = record_inbound_turn(conn, tenant_id, message_sid, sender, message, num_media)
+            is_new = record_inbound_turn(conn, tenant_id, message_sid, sender, message, num_media, received_at)
     except Exception as e:
-        logger.error("event=turn_store_failed request_id=%s message_sid=%s error=%s", request_id, message_sid, e)
+        if storing == "unrecognised":
+            logger.error("event=unrecognised_store_failed request_id=%s message_sid=%s to=%s error=%s", request_id, message_sid, business_number, e)
+        else:
+            logger.error("event=turn_store_failed request_id=%s message_sid=%s error=%s", request_id, message_sid, e)
         return "Store failed", 500
 
     if not is_new:

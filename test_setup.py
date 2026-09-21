@@ -94,6 +94,19 @@ def test_reply_status_allows_null_for_untracked_turns():
     assert status is None
 
 
+# ---------- received_at ----------
+
+def test_turn_received_at_is_not_null():
+    with pytest.raises(psycopg.errors.NotNullViolation, match="received_at"):
+        with get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO turns (tenant_id, message_sid, customer_number, role, body, num_media, received_at)
+                VALUES (1, 'SM001', 'whatsapp:+2340000000000', 'customer', 'hello', 0, NULL)
+                """
+            )
+
+
 # ---------- apply_schema ----------
 
 def test_apply_schema_can_run_twice_in_a_row():

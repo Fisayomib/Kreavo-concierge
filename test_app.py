@@ -1,11 +1,14 @@
 import logging
 import re
+import threading
+import time
+from datetime import datetime, timezone
 
 import pytest
 from twilio.base.exceptions import TwilioRestException
 
 from app.app import app, check_settings
-from app.db import get_connection
+from app.db import get_connection, find_tenant_id, get_conversation, record_inbound_turn
 
 TENANT_NUMBER = "whatsapp:+14155238886"
 CUSTOMER_NUMBER = "whatsapp:+2340000000000"
@@ -179,6 +182,57 @@ def test_unrecognised_number_log_does_not_contain_the_body(sent, caplog):
     assert stored_unrecognised()[0][3] == "secret-body-text"
 
 
+# ---------- turn order ----------
+
+def test_slow_first_request_still_comes_first_in_conversation_order(sent, monkeypatch):
+    # SM001 arrives first but is slow before its insert, so SM002 gets the lower id.
+    # Conversation order must follow received_at, not id.
+    real_find_tenant_id = find_tenant_id
+
+    def slow_for_first_message(conn, whatsapp_number):
+        from flask import request
+        if request.form.get("MessageSid") == "SM001":
+            time.sleep(0.5)
+        return real_find_tenant_id(conn, whatsapp_number)
+
+    monkeypatch.setattr("app.app.find_tenant_id", slow_for_first_message)
+
+    first = threading.Thread(target=post_message, args=("SM001",), kwargs={"body": "first"})
+    second = threading.Thread(target=post_message, args=("SM002",), kwargs={"body": "second"})
+    first.start()
+    time.sleep(0.1)
+    second.start()
+    first.join()
+    second.join()
+
+    with get_connection() as conn:
+        ids = dict(conn.execute("SELECT message_sid, id FROM turns").fetchall())
+        conversation = get_conversation(conn, 1, CUSTOMER_NUMBER)
+    assert ids["SM002"] < ids["SM001"]
+    assert [turn[0] for turn in conversation] == ["SM001", "SM002"]
+    assert conversation[0][4] < conversation[1][4]
+
+
+def test_get_conversation_returns_only_that_tenant_and_customer(sent):
+    post_message("SM001", body="mine")
+    post_message("SM002", body="other customer")
+    with get_connection() as conn:
+        conn.execute("UPDATE turns SET customer_number = %s WHERE message_sid = 'SM002'", ("whatsapp:+2340000000001",))
+        conn.execute("INSERT INTO tenants (name, whatsapp_number) VALUES ('Other Tenant', 'whatsapp:+15550009999')")
+        record_inbound_turn(conn, 2, "SM003", CUSTOMER_NUMBER, "other tenant", 0, datetime.now(timezone.utc))
+        conversation = get_conversation(conn, 1, CUSTOMER_NUMBER)
+    assert [turn[0] for turn in conversation] == ["SM001"]
+    assert conversation[0][1] == "customer"
+    assert conversation[0][2] == "mine"
+
+
+def test_message_received_log_contains_received_at(sent, caplog):
+    with caplog.at_level(logging.INFO):
+        post_message("SM001")
+    received_line = next(r.getMessage() for r in caplog.records if "event=message_received" in r.getMessage())
+    assert "received_at=" in received_line
+
+
 # ---------- failure paths ----------
 
 def test_missing_message_sid_is_rejected_and_not_stored(sent):
@@ -200,6 +254,33 @@ def test_store_failure_returns_500_so_twilio_can_retry(sent, monkeypatch, caplog
     assert response.status_code == 500
     assert "event=turn_store_failed" in caplog.text
     assert sent == []
+
+
+def test_unrecognised_store_failure_returns_500_with_its_own_event(sent, monkeypatch, caplog):
+    def broken_store(*args, **kwargs):
+        raise RuntimeError("database down")
+
+    monkeypatch.setattr("app.app.record_unrecognised_message", broken_store)
+    with caplog.at_level(logging.ERROR):
+        response = post_message("SM001", to=UNKNOWN_NUMBER)
+    assert response.status_code == 500
+    assert "event=unrecognised_store_failed" in caplog.text
+    assert "event=turn_store_failed" not in caplog.text
+    assert f"to={UNKNOWN_NUMBER}" in caplog.text
+    assert stored_turns() == []
+    assert sent == []
+
+
+def test_turn_store_failure_still_logs_turn_store_failed(sent, monkeypatch, caplog):
+    def broken_store(*args, **kwargs):
+        raise RuntimeError("database down")
+
+    monkeypatch.setattr("app.app.record_inbound_turn", broken_store)
+    with caplog.at_level(logging.ERROR):
+        response = post_message("SM001")
+    assert response.status_code == 500
+    assert "event=turn_store_failed" in caplog.text
+    assert "event=unrecognised_store_failed" not in caplog.text
 
 
 def test_reply_failure_keeps_the_turn_and_returns_204(monkeypatch, caplog):
